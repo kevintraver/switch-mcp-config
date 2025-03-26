@@ -1,0 +1,85 @@
+#!/bin/bash
+# switch-mcp - copy/symlink the project-specific .mcp_config.json to destination paths
+# CLAUDE_MCP_CONFIG_PATH
+# WINDSURF_MCP_CONFIG_PATH
+# VSCODE_MCP_CONFIG_PATH
+# CURSOR_MCP_CONFIG_PATH
+
+# Check if the default configuration should be used
+if [ "$1" = "default" ]; then
+	CONFIG_FILE="$HOME/.mcp_config.json"
+else
+	# Determine the project root: try Git first, fallback to current directory.
+	GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+	if [ $? -ne 0 ] || [ -z "$GIT_ROOT" ]; then
+		GIT_ROOT=$(pwd)
+	fi
+
+	# Define the project configuration file.
+	CONFIG_FILE="$GIT_ROOT/.mcp_config.json"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+	echo "$CONFIG_FILE not found"
+	exit 1
+fi
+
+# Display the config file being used
+echo "Using: $CONFIG_FILE"
+
+# Function: remove existing file or symlink (if any) and copy the file.
+process_copy() {
+	local dest_path="$1"
+	local tool="$2"
+
+	# Remove the destination if it exists (whether file or symlink)
+	if [ -e "$dest_path" ] || [ -L "$dest_path" ]; then
+		rm "$dest_path"
+	fi
+
+	# Copy the file instead of creating a symlink
+	cp "$CONFIG_FILE" "$dest_path" 2>/dev/null
+
+	if [ $? -eq 0 ]; then
+		echo "$tool: copied"
+	else
+		echo "$tool: failed to copy (destination $dest_path might be incorrect)"
+	fi
+}
+
+# Function: remove existing symlink (if any) and create a new symlink.
+process_symlink() {
+	local dest_path="$1"
+	local tool="$2"
+	if [ -L "$dest_path" ]; then
+		rm "$dest_path"
+	elif [ -e "$dest_path" ]; then
+		echo "Warning: $dest_path exists and is not a symlink, skipping $tool."
+		return
+	fi
+	ln -s "$CONFIG_FILE" "$dest_path" 2>/dev/null
+	if [ $? -eq 0 ]; then
+		echo "$tool: linked"
+	else
+		echo "$tool: failed to link (destination $dest_path might be incorrect)"
+	fi
+}
+
+use_symlink=${MCP_SWITCHER_USE_SYMLINK:-false}
+
+process() {
+	local path="$1"
+	local tool="$2"
+	if [ "$use_symlink" = "true" ]; then
+		process_symlink "$path" "$tool"
+	else
+		process_copy "$path" "$tool"
+	fi
+}
+
+[ -n "$CLAUDE_MCP_CONFIG_PATH" ] && process "$CLAUDE_MCP_CONFIG_PATH" "Claude"
+[ -n "$WINDSURF_MCP_CONFIG_PATH" ] && process "$WINDSURF_MCP_CONFIG_PATH" "Windsurf"
+[ -n "$VSCODE_MCP_CONFIG_PATH" ] && process "$VSCODE_MCP_CONFIG_PATH" "VSCode"
+[ -n "$CURSOR_MCP_CONFIG_PATH" ] && process "$CURSOR_MCP_CONFIG_PATH" "Cursor"
+
+# Note: The default config path is $HOME/.mcp_config.json.
